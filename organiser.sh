@@ -1,92 +1,153 @@
 #!/bin/bash
 
-src_dir="$1"
-dest_dir="$2"
-to_be_deleted=false
-help=false
-
-# Function to display script usage information
-usage() {
-  echo "Usage: $0 <SOURCE DIRECTORY> <DESTINATION DIRECTORY>"
-  echo "Try 'Organiser.sh --help' for more information."
-  exit 1
+# Function to print usage instructions
+print_usage() {
+  echo "Usage: bash organizer.sh <srcdir> <destdir> [options]"
+  echo "Options:"
+  echo "  -s <style>    Specify organization style: ext (default) or date"
+  echo "  -d            Delete original files after organizing"
+  echo "  -e <excludes> Exclude file types or directories (comma-separated)"
+  echo "  -l <logfile>  Generate a log file with the specified name"
+}
+folders_count=0;
+# Function to create a folder if it doesn't exist
+create_folder() {
+  if [ ! -d "$1" ]; then
+    mkdir -p "$1"
+    ((folders_count++))
+  fi
 }
 
-if [ "$*" = "-h" ] || [ "$*" = "--help" ]; then
-  echo "Directory Organizer"
-  echo "Usage: $0 <source_directory> <destination_directory> [-d] [-h]"
-  echo
-  echo "Description: This script organizes files from the source directory into separate"
-  echo "folders based on their file extensions. The organized files are then moved or"
-  echo "copied to the destination directory."
-  echo
-  echo "Arguments:"
-  echo "  <source_directory>     Path to the source directory."
-  echo "  <destination_directory> Path to the destination directory."
-  echo "  -d                      Optional flag to delete original files after organizing."
-  echo "  -h, --help              Display this help information."
-  exit 0
-fi
-# Check arguments for syntax 
-# Check the number of arguments
-if [ $# -lt 2 ]; then
-  usage
-fi
-
-# Check if the -d flag is provided
-if [ "$3" = "-d" ]; then
-  to_be_deleted=true
-fi
-
-# Check if the source directory exists
-if [ ! -d "$src_dir" ]; then
-  echo "Source directory does not exist!"
-  usage
-fi
-
-# Create the destination directory if it doesn't exist
-if [ ! -d "$dest_dir" ]; then
-  mkdir -p "$dest_dir"
-fi
-
-
-
-# Organize files by extension
-find "$src_dir" -type f | while read -r file; do
-  # Get the file extension
-  filename="$(basename "$file" | cut -d'.' -f1)"
-  extension="$(basename "$file" | grep -o '\.[^.]*$')"
+# Function to move files to the destination folder
+move_file() {
+  local src_file="$1"
+  local dest_folder="$2"
+  local filename="$(basename "$src_file")"
+  local dest_path="$dest_folder/$filename"
   
-  if [ -z "$extension" ]; then
-  extension="no_extension"
-  else
-  extension="${extension#.}"
+  if [ -e "$dest_path" ]; then
+    local counter=1
+    while [ -e "$dest_path" ]; do
+      filename="${filename%.*}_$counter.${filename##*.}"
+      dest_path="$dest_folder/$filename"
+      ((counter++))
+    done
   fi
   
-  sub_dir="$dest_dir/$extension"
+  cp "$src_file" "$dest_path"
+  
+  if [ -n "$logfile" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') | $src_file | $dest_path" >> "$logfile"
+  fi
+}
 
-  # Create the subdirectory if it doesn't exist
-  if [ ! -d "$sub_dir" ]; then
-    mkdir -p "$sub_dir"
-  fi
-  
-  # Handle duplicate filenames
-  count=0
-  new_file="$sub_dir/$(basename "$file")"
-  while [ -e "$new_file" ]; do
-    ((count++))
-    filename="$(basename "$file" | cut -d'.' -f1)"
-    if [ $extension = "no_extension" ]; then
-    new_file="$sub_dir/${filename}_$count"
-    else
-    new_file="$sub_dir/${filename}_$count.$extension"
-    fi
-  done
-  
-  # Move or copy the file to the destination
-  if [ "$to_be_deleted" = true ]; then
-    mv "$file" "$new_file"
-  else
-    cp "$file" "$new_file"
-  fi
+# Parsing command-line arguments
+while getopts "s:de:l:" opt; do
+  case $opt in
+    s)
+      style=$OPTARG
+      ;;
+    d)
+      delete_files=true
+      ;;
+    e)
+      excludes=$OPTARG
+      ;;
+    l)
+      logfile=$OPTARG
+      ;;
+    :)
+      echo "Error: Option -$OPTARG requires an argument."
+      print_usage
+      exit 1
+      ;;
+    \?)
+      echo "Error: Invalid option -$OPTARG."
+      print_usage
+      exit 1
+      ;;
+  esac
 done
+
+shift $((OPTIND - 1))
+
+# Checking source and destination directory arguments
+if [ $# -lt 2 ]; then
+  echo "Error: Both source and destination directory paths are required."
+  print_usage
+  exit 1
+fi
+
+srcdir=$1
+destdir=$2
+
+# Checking and creating destination folder
+create_folder "$destdir"
+
+# File organization based on extension
+if [ -z "$style" ] || [ "$style" = "ext" ]; then
+  echo "Organizing files based on extension..."
+  
+  while IFS= read -r -d '' file; do
+    extension="${file##*.}"
+    
+    if [ -n "$excludes" ] && [[ "$excludes" == *"$extension"* ]]; then
+      continue
+    fi
+    
+    if [[ ! "$file" = *.* ]]; then
+      dest_folder="$destdir/no_extension"
+    else
+      dest_folder="$destdir/$extension"
+    fi
+    
+    create_folder "$dest_folder"
+    move_file "$file" "$dest_folder"
+  done < <(find "$srcdir" -type f -print0)
+fi
+
+# File organization based on creation date
+if [ "$style" = "date" ]; then
+  echo "Organizing files based on creation date..."
+  
+  while IFS= read -r -d '' file; do
+    creation_date=$(stat -c "%y" "$file" | cut -d' ' -f1)
+    
+    if [ -n "$excludes" ] && [[ "$excludes" == *"$creation_date"* ]]; then
+      continue
+    fi
+    
+    if [ -z "$creation_date" ]; then
+      dest_folder="$destdir/no_date"
+    else
+      dest_folder="$destdir/$creation_date"
+    fi
+    
+    create_folder "$dest_folder"
+    move_file "$file" "$dest_folder"
+  done < <(find "$srcdir" -type f -print0)
+fi
+
+# Deleting original files
+if [ "$delete_files" = true ]; then
+  echo "Deleting original files..."
+  
+  while IFS= read -r -d '' file; do
+    rm "$file"
+  done < <(find "$srcdir" -type f -print0)
+fi
+
+# Printing summary
+echo "Summary:"
+#folders_count=$(find "$destdir" -mindepth 1 -type d | grep -v "$destdir$" | wc -l)
+files_count=$(find "$destdir" -type f | wc -l)
+echo "Number of folders created: $folders_count"
+echo "Number of files transferred: $files_count"
+
+# Cleanup
+unset style
+unset delete_files
+unset excludes
+unset logfile
+unset srcdir
+unset destdir
