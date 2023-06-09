@@ -24,11 +24,11 @@ move_file() {
   local dest_folder="$2"
   local filename="$(basename "$src_file")"
   local dest_path="$dest_folder/$filename"
-  
+  local actualname="$(basename "$src_file")"
   if [ -e "$dest_path" ]; then
     local counter=1
     while [ -e "$dest_path" ]; do
-      filename="${filename%.*}_$counter.${filename##*.}"
+      filename="${actualname%.*}_$counter.${filename##*.}"
       dest_path="$dest_folder/$filename"
       ((counter++))
     done
