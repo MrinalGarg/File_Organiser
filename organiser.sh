@@ -4,12 +4,14 @@
 print_usage() {
   echo "Usage: bash organizer.sh <srcdir> <destdir> [options]"
   echo "Options:"
-  echo "  -s <style>    Specify organization style: ext (default) or date"
-  echo "  -d            Delete original files after organizing"
-  echo "  -e <excludes> Exclude file types or directories (comma-separated)"
-  echo "  -l <logfile>  Generate a log file with the specified name"
+  echo "  -s <style>     Specify organization style: ext (default) or date"
+  echo "  -d             Delete original files after organizing"
+  echo "  -e <excludes>  Exclude file types or directories (comma-separated)"
+  echo "  -l <logfile>   Generate a log file with the specified name"
+  echo "  -c <extension> Compress all the files together with a particular extension"
 }
 folders_count=0;
+files_count=0;
 # Function to create a folder if it doesn't exist
 create_folder() {
   if [ ! -d "$1" ]; then
@@ -34,15 +36,47 @@ move_file() {
     done
   fi
   
+  ((files_count++))
+  
+  if [ "$delete_files" = true ]; then
+  mv "$src_file" "$dest_path"
+  else
   cp "$src_file" "$dest_path"
+  fi  
   
   if [ -n "$logfile" ]; then
     echo "$(date '+%Y-%m-%d %H:%M:%S') | $src_file | $dest_path" >> "$logfile"
   fi
 }
 
+# Function to compress files in a folder using tar
+compress_files() {
+  local folder="$1"
+  local output_file="$2"
+  
+  # Check if the folder exists
+  if [ ! -d "$folder" ]; then
+    echo "Folder '$folder' does not exist."
+    return 1
+  fi
+  
+  # Check if there are any files in the folder
+  if [ -z "$(ls -A "$folder")" ]; then
+    echo "Folder '$folder' is empty."
+    return 1
+  fi
+  
+  # Create the compressed tarball
+  if ! tar -czf "$output_file" -C "$(dirname "$folder")" "$(basename "$folder")"; then
+    echo "Failed to create the compressed tarball."
+    return 1
+  fi
+  
+  echo "Compressed tarball '$output_file' created successfully."
+}
+
 # Parsing command-line arguments
-while getopts "s:de:l:" opt; do
+while getopts "s:de:l:c:" opt; do
   case $opt in
     s)
       style=$OPTARG
@@ -51,10 +85,13 @@ while getopts "s:de:l:" opt; do
       delete_files=true
       ;;
     e)
-      excludes=$OPTARG
+      excludes=,,$OPTARG,,
       ;;
     l)
       logfile=$OPTARG
+      ;;
+    c)
+      to_be_zipped=,,$OPTARG,,
       ;;
     :)
       echo "Error: Option -$OPTARG requires an argument."
@@ -91,7 +128,7 @@ if [ -z "$style" ] || [ "$style" = "ext" ]; then
   while IFS= read -r -d '' file; do
     extension="${file##*.}"
     
-    if [ -n "$excludes" ] && [[ "$excludes" == *"$extension"* ]]; then
+    if [ -n "$excludes" ] && [[ "$excludes" == *,"$extension",* ]]; then
       continue
     fi
     
@@ -113,7 +150,7 @@ if [ "$style" = "date" ]; then
   while IFS= read -r -d '' file; do
     creation_date=$(stat -c "%y" "$file" | cut -d' ' -f1)
     
-    if [ -n "$excludes" ] && [[ "$excludes" == *"$creation_date"* ]]; then
+    if [ -n "$excludes" ] && [[ "$excludes" == *,"$creation_date",* ]]; then
       continue
     fi
     
@@ -128,19 +165,27 @@ if [ "$style" = "date" ]; then
   done < <(find "$srcdir" -type f -print0)
 fi
 
-# Deleting original files
-if [ "$delete_files" = true ]; then
-  echo "Deleting original files..."
-  
-  while IFS= read -r -d '' file; do
-    rm "$file"
-  done < <(find "$srcdir" -type f -print0)
+# Compressing specific files using tar
+if [ -n "$to_be_zipped" ]; then
+  echo "Compressing specific files..."
+  while IFS= read -r -d '' folder; do
+    folder_name="$(basename "$folder")"
+    if [[ "$to_be_zipped" == *,"$folder_name",* ]]; then
+      tar_name="${folder_name}.tar.gz"
+      compress_files "$folder" "$destdir/$tar_name"
+      rm -rf $folder
+      ((folders_count--))
+      break
+    fi
+  done < <(find "$destdir" -type d -print0)
+fi
+
+if [ -n "$logfile" ]; then
+mv "$logfile" "$destdir/$logfile"
 fi
 
 # Printing summary
 echo "Summary:"
-#folders_count=$(find "$destdir" -mindepth 1 -type d | grep -v "$destdir$" | wc -l)
-files_count=$(find "$destdir" -type f | wc -l)
 echo "Number of folders created: $folders_count"
 echo "Number of files transferred: $files_count"
 
