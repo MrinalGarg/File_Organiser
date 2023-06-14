@@ -29,7 +29,8 @@ move_file() {
   local actualname="$(basename "$src_file")"
   if [ -e "$dest_path" ]; then
     local counter=1
-    while [ -e "$dest_path" ]; do
+    #loop to dest update file name for files with same name 
+    while [ -e "$dest_path" ]; do  
       filename="${actualname%.*}_$counter.${filename##*.}"
       dest_path="$dest_folder/$filename"
       ((counter++))
@@ -93,6 +94,7 @@ while getopts "s:de:l:c:" opt; do
     c)
       to_be_zipped=,,$OPTARG,,
       ;;
+    # Handling errors in giving arguments to options
     :)
       echo "Error: Option -$OPTARG requires an argument."
       print_usage
@@ -128,6 +130,7 @@ if [ -z "$style" ] || [ "$style" = "ext" ]; then
   while IFS= read -r -d '' file; do
     extension="${file##*.}"
     
+    # Excluding the files
     if [ -n "$excludes" ] && [[ "$excludes" == *,"$extension",* ]]; then
       continue
     fi
@@ -165,6 +168,7 @@ if [ "$style" = "date" ]; then
   done < <(find "$srcdir" -type f -print0)
 fi
 echo "$to_be_zipped"
+
 # Compressing specific files using tar
 if [ -n "$to_be_zipped" ]; then
   echo "Compressing specific files..."
@@ -183,6 +187,7 @@ if [ -n "$to_be_zipped" ]; then
   done < <(find "$destdir" -type d -print0)
 fi
 
+# moving the file to destination
 if [ -n "$logfile" ]; then
 mv "$logfile" "$destdir/$logfile"
 fi
@@ -191,8 +196,10 @@ fi
 echo "Summary:"
 echo "Number of folders created: $folders_count"
 echo "Number of files transferred: $files_count"
+# logic for recursively finding the no. of files transferred in each folder 
+find "$destdir" -type d -not -path "$destdir" -exec sh -c "echo -n '{}: '; find '{}' -type f | wc -l" \; | sed 's/^/    /'
 
-# Cleanup
+# Cleanup :-)
 unset style
 unset delete_files
 unset excludes
