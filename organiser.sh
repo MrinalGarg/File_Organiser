@@ -164,19 +164,22 @@ if [ "$style" = "date" ]; then
     move_file "$file" "$dest_folder"
   done < <(find "$srcdir" -type f -print0)
 fi
-
+echo "$to_be_zipped"
 # Compressing specific files using tar
 if [ -n "$to_be_zipped" ]; then
   echo "Compressing specific files..."
+  IFS=',' read -ra zip_args <<< "$to_be_zipped"
   while IFS= read -r -d '' folder; do
     folder_name="$(basename "$folder")"
-    if [[ "$to_be_zipped" == *,"$folder_name",* ]]; then
-      tar_name="${folder_name}.tar.gz"
-      compress_files "$folder" "$destdir/$tar_name"
-      rm -rf $folder
-      ((folders_count--))
-      break
-    fi
+    for arg in "${zip_args[@]}"; do
+      if [ "$arg" = "$folder_name" ]; then
+        tar_name="${folder_name}.tar.gz"
+        compress_files "$folder" "$destdir/$tar_name"
+        rm -rf "$folder"
+        ((folders_count--))
+        break
+      fi
+    done
   done < <(find "$destdir" -type d -print0)
 fi
 
